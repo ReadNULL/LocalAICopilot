@@ -1,8 +1,11 @@
+# Local AI Copilot
 
+> 本地部署的多Agent智能体RAG项目，使用LangGraph框架控制工作流，前后端使用FastAPI + Next.js
 
 ## 项目结构
+<details>
+<summary><strong>目录结构</strong> （点击展开）</summary>
 
-<detail>
 ```text
 local-ai-copilot/
 ├── backend/
@@ -51,4 +54,6 @@ local-ai-copilot/
 │
 ├── README.md
 ```
-</detail>
+
+</details>
+-----
