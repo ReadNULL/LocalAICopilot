@@ -25,7 +25,6 @@ interface Message {
     snippets?: string;
 }
 
-// 单独抽离的助手消息组件（管理引用和片段的折叠状态）
 const AssistantMessage = ({ msg }: { msg: Message }) => {
     const [showSources, setShowSources] = useState(true);
     const [showSnippets, setShowSnippets] = useState(false);
@@ -41,7 +40,6 @@ const AssistantMessage = ({ msg }: { msg: Message }) => {
 
     return (
         <div className="flex gap-4">
-            {/* 头像加了轻量阴影和浅边框 */}
             <div className="w-10 h-10 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0 border border-indigo-100 shadow-sm">
                 <Bot className="w-6 h-6" />
             </div>
@@ -51,12 +49,10 @@ const AssistantMessage = ({ msg }: { msg: Message }) => {
                     <span className="text-xs text-gray-400">{msg.timestamp}</span>
                 </div>
 
-                {/* ✅ 修复了 ReactMarkdown 的类名报错，将 prose 样式移到外层 div */}
                 <div className="text-gray-700 text-[15px] leading-relaxed mb-4 prose prose-sm max-w-none">
                     <ReactMarkdown>{msg.content}</ReactMarkdown>
                 </div>
 
-                {/* 引用来源 - 增加浅色边框(border-gray-200)和投影(shadow-sm) */}
                 {msg.sources && msg.sources.length > 0 && (
                     <div className="mb-3 border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
                         <button
@@ -84,7 +80,6 @@ const AssistantMessage = ({ msg }: { msg: Message }) => {
                     </div>
                 )}
 
-                {/* 检索片段 - 增加浅色边框和投影 */}
                 {msg.snippets && (
                     <div className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
                         <button
@@ -119,7 +114,6 @@ export default function ChatWindow() {
     };
 
     const [messages, setMessages] = useState<Message[]>([
-        // ✅ 补全了用户的历史提问，以完全匹配截图效果
         {
             id: 'user-1',
             role: 'user',
@@ -201,7 +195,6 @@ export default function ChatWindow() {
 
     return (
         <div className="flex-1 flex flex-col h-screen bg-[#F9FAFB]">
-            {/* 顶部状态栏 - 显式指定浅灰色边框 */}
             <header className="h-16 border-b border-gray-200 bg-white flex items-center px-6 text-sm flex-shrink-0 shadow-sm z-10">
                 <h2 className="font-semibold text-gray-800 text-base">新会话</h2>
 
@@ -232,7 +225,6 @@ export default function ChatWindow() {
                 </div>
             </header>
 
-            {/* 消息区 */}
             <div className="flex-1 overflow-y-auto px-10 py-8 space-y-8 pb-32">
                 {messages.map((msg) => (
                     <div key={msg.id}>
@@ -269,37 +261,48 @@ export default function ChatWindow() {
                 <div ref={messagesEndRef} />
             </div>
 
-            {/* 输入区（底部悬浮风格） */}
             <div className="absolute bottom-0 left-80 right-0 p-6 bg-gradient-to-t from-[#F9FAFB] via-[#F9FAFB] to-transparent">
                 <div className="max-w-4xl mx-auto">
 
-                    {/* ✅ 增加了浅灰边框 border-gray-200 和明显的中等投影 shadow-md */}
                     <div className="bg-white border border-gray-200 rounded-2xl shadow-md p-3 flex items-end gap-3 transition-shadow focus-within:shadow-lg focus-within:border-blue-300">
 
-                        {/* 左侧模式选择 Pill */}
-                        <div className="mb-1 ml-1 shrink-0">
+                        <div className="mb-0.5 ml-1 shrink-0 flex items-center gap-2">
                             <button
-                                onClick={() => setMode(mode === 'rag' ? 'chat' : 'rag')}
-                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                                    mode === 'rag' ? 'bg-green-50 text-green-600 border border-green-100' : 'bg-blue-50 text-blue-600 border border-blue-100'
+                                onClick={() => setMode('rag')}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all ${
+                                    mode === 'rag' 
+                                        ? 'bg-green-50 text-green-700 border border-green-200 shadow-sm' 
+                                        : 'bg-gray-50 text-gray-500 border border-transparent hover:bg-gray-100'
                                 }`}
                             >
-                                {mode === 'rag' ? <Database className="w-3.5 h-3.5" /> : <Bot className="w-3.5 h-3.5" />}
-                                {mode === 'rag' ? 'RAG 增强模式' : '普通对话'}
-                                <ChevronDown className="w-3 h-3" />
+                                <Database className="w-3.5 h-3.5" />
+                                RAG 增强模式
+                            </button>
+
+                            <button
+                                onClick={() => setMode('chat')}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all ${
+                                    mode === 'chat' 
+                                        ? 'bg-blue-50 text-blue-700 border border-blue-200 shadow-sm' 
+                                        : 'bg-gray-50 text-gray-500 border border-transparent hover:bg-gray-100'
+                                }`}
+                            >
+                                <Bot className="w-3.5 h-3.5" />
+                                普通对话
                             </button>
                         </div>
 
+                        {/* ✅ 移除了 min-h，将 py-2 改为 py-2.5 使得单行文字垂直居中 */}
                         <textarea
                             value={input}
                             onChange={(e) => setInput(e.target.value)}
                             onKeyDown={handleKeyDown}
                             placeholder="输入你的问题，或 / 选择技能，Shift + Enter 换行"
-                            className="flex-1 bg-transparent resize-none outline-none text-[15px] px-2 py-2 text-gray-700 placeholder:text-gray-400 max-h-32 min-h-[44px]"
+                            className="flex-1 bg-transparent resize-none outline-none text-[15px] leading-normal px-2 py-2.5 text-gray-700 placeholder:text-gray-400 max-h-32"
                             rows={1}
                         />
 
-                        <div className="flex items-center gap-2 mb-1 shrink-0">
+                        <div className="flex items-center gap-2 mb-0.5 shrink-0">
                             <button className="p-2 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100 transition-colors">
                                 <Paperclip className="w-5 h-5" />
                             </button>
