@@ -1,56 +1,162 @@
 import axios from 'axios';
 
-// 读取我们在 .env.local 中配置的后端地址
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
+// ================================
+// 基础配置
+// ================================
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
 
 const apiClient = axios.create({
-    baseURL: API_BASE_URL,
-    headers: {
-        'Content-Type': 'application/json',
-    },
+  baseURL: API_BASE_URL,
+  headers: {
+    'Content-Type': 'application/json',
+  },
 });
 
-// ==========================================
-// 1. 对话接口 (对应 backend/app/api/chat.py)
-// ==========================================
-export interface ChatResponse {
-    answer: string;
-    is_hallucinated: boolean;
-}
-
-export const chatWithAgent = async (query: string): Promise<ChatResponse> => {
-    try {
-        const response = await apiClient.post('/api/chat/', { query });
-        return response.data;
-    } catch (error) {
-        console.error('Chat API Error:', error);
-        throw error;
-    }
+// ================================
+// 通用错误处理
+// ================================
+const handleError = (error: any, tag: string): never => {
+  console.error(`${tag} Error:`, error?.response?.data || error.message);
+  throw error;
 };
 
-// ==========================================
-// 2. 文件上传接口 (对应 backend/app/api/rag.py)
-// ==========================================
-export interface UploadResponse {
-    filename: string;
-    message: string;
-    chunks_count: number;
+// ================================
+// 1️⃣ Chat
+// ================================
+
+export interface ChatRequest {
+  query: string;
+  mode?: 'rag' | 'chat'; // 默认 rag
+  doc_ids?: string[]; // 参与检索的文档
 }
 
-export const uploadDocument = async (file: File): Promise<UploadResponse> => {
-    const formData = new FormData();
-    formData.append('file', file);
+export interface Source {
+  docName: string;
+  chunkId: number;
+  score: number;
+  content?: string; // 🔥 为后续“检索片段展示”准备
+}
 
-    try {
-        // 注意：上传文件必须使用 multipart/form-data
-        const response = await apiClient.post('/api/rag/upload', formData, {
-            headers: {
-                'Content-Type': 'multipart/form-data',
-            },
-        });
-        return response.data;
-    } catch (error) {
-        console.error('Upload API Error:', error);
-        throw error;
-    }
+export interface ChatResponse {
+  answer: string;
+  is_hallucinated?: boolean;
+  sources?: Source[];
+}
+
+export const chatWithAgent = async (
+  payload: ChatRequest
+): Promise<ChatResponse> => {
+  try {
+    const res = await apiClient.post('/api/chat/', payload);
+    return res.data;
+  } catch (error) {
+    return handleError(error, 'Chat API');
+  }
+};
+
+// ================================
+// 2️⃣ 上传文档
+// ================================
+
+export interface UploadResponse {
+  id: string;
+  filename: string;
+  chunks_count: number;
+  status: 'processing' | 'ready' | 'error';
+}
+
+export const uploadDocument = async (
+  file: File
+): Promise<UploadResponse> => {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  try {
+    const res = await apiClient.post('/api/rag/upload', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+
+    return res.data;
+  } catch (error) {
+    return handleError(error, 'Upload API');
+  }
+};
+
+// ================================
+// 3️⃣ 文档管理
+// ================================
+
+export interface DocumentItem {
+  id: string;
+  name: string;
+  chunks: number;
+  status: 'processing' | 'ready' | 'error';
+  enabled: boolean;
+  created_at: string;
+}
+
+// 获取文档列表
+export const fetchDocuments = async (): Promise<DocumentItem[]> => {
+  try {
+    const res = await apiClient.get('/api/rag/documents');
+    return res.data;
+  } catch (error) {
+    return handleError(error, 'Fetch Documents');
+  }
+};
+
+// 启用 / 禁用文档
+export const toggleDocument = async (
+  id: string,
+  enabled: boolean
+) => {
+  try {
+    await apiClient.patch(`/api/rag/document/${id}`, { enabled });
+  } catch (error) {
+    handleError(error, 'Toggle Document');
+  }
+};
+
+// 删除文档
+export const deleteDocument = async (id: string) => {
+  try {
+    await apiClient.delete(`/api/rag/document/${id}`);
+  } catch (error) {
+    handleError(error, 'Delete Document');
+  }
+};
+
+// ================================
+// 4️⃣ 知识库
+// ================================
+
+export interface KnowledgeBase {
+  id: string;
+  name: string;
+}
+
+// 获取知识库列表
+export const fetchKnowledgeBases = async (): Promise<KnowledgeBase[]> => {
+  try {
+    const res = await apiClient.get('/api/kb');
+    return res.data;
+  } catch (error) {
+    return handleError(error, 'Fetch KB');
+  }
+};
+
+// ================================
+// 5️⃣ 健康检查
+// ================================
+
+export const checkHealth = async (): Promise<boolean> => {
+  try {
+    await apiClient.get('/health');
+    return true;
+  } catch {
+    return false;
+  }
 };
