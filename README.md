@@ -18,7 +18,7 @@
 
 - **💻 现代化全栈 UI**：基于 Next.js + Tailwind CSS 打造的沉浸式聊天与本地文件管理界面，支持 Markdown 实时渲染与流式加载状态。
   
- ![img.png](images/demo_png1.png)
+ ![img.png](https://github.com/ReadNULL/LocalAICopilot/blob/main/images/demo_png1.png)
 
 ---
 
