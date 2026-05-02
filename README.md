@@ -16,7 +16,9 @@
 
 - **🛡️ 严格的防幻觉机制**：通过 Prompt 强约束、低温度采样、强制引用来源以及 LLM 结果后置校验，最大程度杜绝大模型的“胡说八道”。 
 
-- **💻 现代化全栈 UI**：基于 Next.js + Tailwind CSS 打造的沉浸式聊天与本地文件管理界面，支持 Markdown 实时渲染与流式加载状态。 
+- **💻 现代化全栈 UI**：基于 Next.js + Tailwind CSS 打造的沉浸式聊天与本地文件管理界面，支持 Markdown 实时渲染与流式加载状态。
+  
+ ![img.png](images/demo_png1.png)
 
 ---
 
