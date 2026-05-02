@@ -8,16 +8,54 @@
 
 ##   核心特性 
 
-- **🧠 智能规划大脑 (Planner Agent)**：基于 LangGraph 构建的状态机工作流。大模型能够自主判断用户的意图，智能路由到“工具执行”、“知识库检索”或“日常对话”。 
+- ### 智能 Agent 架构（LangGraph）
 
-- **🛠️ 强大的本地工具链 (Tools)**：Agent 拥有读取本地文件、写入文件以及执行 Python 代码（沙盒内计算/处理）的能力，突破了传统 LLM 只能“动嘴”的限制。 
+  - 基于状态机的多节点 Agent 系统
+  - 自动进行任务路由：
+    - 知识库检索（RAG）
+    - 工具调用（Tool Use）
+    - 通用对话（Chat）
 
--  **📚 满血版混合检索 RAG**：集成了语义分块、MQE 多查询扩展、HyDE 假设文档嵌入、HNSW 向量 + BM25 关键字双路召回、RRF 合并以及 BGE 交叉重排的工业级 RAG 流水线。 
+  ------
 
-- **🛡️ 严格的防幻觉机制**：通过 Prompt 强约束、低温度采样、强制引用来源以及 LLM 结果后置校验，最大程度杜绝大模型的“胡说八道”。 
+  ### 本地工具能力（Tool Use）
 
-- **💻 现代化全栈 UI**：基于 Next.js + Tailwind CSS 打造的沉浸式聊天与本地文件管理界面，支持 Markdown 实时渲染与流式加载状态。
-  
+  - 本地文件读取与写入
+  - Python 沙箱执行（计算 / 数据处理）
+  - 可扩展工具接口（插件化设计）
+
+  ------
+
+  ### 混合检索 RAG 系统（Hybrid Search）
+
+  - MQE（多查询扩展）
+  - HyDE（假设文档生成）
+  - 向量检索（HNSW / Qdrant）
+  - BM25 关键词检索
+  - RRF 融合排序
+  - Cross-Encoder 重排序（bge-reranker）
+
+  ------
+
+  ### 防幻觉机制
+
+  - 强约束 Prompt（仅基于检索内容回答）
+  - 温度控制（temperature = 0.1）
+  - 强制引用来源 chunk
+  - 空检索拒答机制
+  - LLM 自检输出（validity check）
+
+  ------
+
+  ### 前端系统
+
+  - Next.js + Tailwind CSS
+  - 流式对话输出
+  - Markdown 渲染
+  - 本地文件管理界面
+  - RAG 源信息可视化
+
+
  ![img.png](https://github.com/ReadNULL/LocalAICopilot/blob/main/images/demo_png1.png?raw=true)
 
 ---
