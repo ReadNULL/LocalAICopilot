@@ -1,60 +1,83 @@
-from fastapi import APIRouter, HTTPException
+import json
+from fastapi import APIRouter
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from typing import List, Optional
+from langchain_core.messages import HumanMessage, AIMessage
 from app.agent.graph import app_graph
+from app.core.logger import logger
 
 router = APIRouter()
 
 
-# 定义接收前端数据的格式
+class MessageItem(BaseModel):
+    role: str
+    content: str
+
+
 class ChatRequest(BaseModel):
     query: str
-    # 这里预留了 history 字段，未来如果你想实现多轮记住上下文的对话，
-    # 可以在这里接收前端传来的历史消息，并塞入 State 的 messages 中
-    # history: list = []
+    mode: str = "rag"
+    doc_ids: Optional[List[str]] = None
+    history: Optional[List[MessageItem]] = []  # 历史消息
 
 
-# 定义返回给前端的数据格式
-class ChatResponse(BaseModel):
-    answer: str
-    is_hallucinated: bool
+@router.post("/")
+async def chat_stream_endpoint(req: ChatRequest):
+    logger.info(f"收到提问: {req.query}, 模式: {req.mode}, 携带历史轮数: {len(req.history)}")
 
+    # 将前端的历史记录转换为 LangChain 的消息对象
+    langchain_messages = []
+    if req.history:
+        for msg in req.history:
+            if msg.role == "user":
+                langchain_messages.append(HumanMessage(content=msg.content))
+            elif msg.role == "assistant":
+                langchain_messages.append(AIMessage(content=msg.content))
 
-@router.post("/", response_model=ChatResponse)
-async def chat_with_agent(request: ChatRequest):
-    """
-    与 Local AI Copilot 交互的核心端点
-    """
-    try:
-        print(f"\n📥 收到 API 请求，用户提问: {request.query}")
+    # 把当前的提问追加到最后
+    langchain_messages.append(HumanMessage(content=req.query))
 
-        # 1. 初始化 LangGraph 的初始状态 (State)
-        initial_state = {
-            "query": request.query,
-            "messages": []
-        }
+    initial_state = {
+        "query": req.query,
+        "mode": req.mode,
+        "doc_ids": req.doc_ids or [],
+        "messages": langchain_messages
+    }
 
-        # 2. 触发工作流！invoke 会同步等待整个图走到 END 节点
-        print("⚙️ 正在启动 Agent 思考链路...")
-        final_state = app_graph.invoke(initial_state)
+    async def event_generator():
+        try:
+            async for event in app_graph.astream_events(initial_state, version="v2"):
+                kind = event["event"]
+                name = event["name"]
+                tags = event.get("tags", [])
 
-        # 3. 解析图流转完毕后的最终状态
-        # 情况 A：如果走了 RAG 知识库检索路线，答案会被 ResponderNode 写入 'final_answer'
-        answer = final_state.get("final_answer")
+                if kind == "on_chain_end" and name == "retrieve":
+                    raw_docs = event["data"]["output"].get("retrieved_docs", [])
+                    sources = [
+                        {
+                            "docName": doc.metadata.get("doc_name", "未知文档"),
+                            "chunkId": doc.metadata.get("chunk_id", 0),
+                            "score": doc.metadata.get("rerank_score", 0.0),
+                            "content": doc.page_content
+                        } for doc in raw_docs
+                    ]
+                    yield f"data: {json.dumps({'type': 'sources', 'data': sources})}\n\n"
 
-        # 情况 B：如果是闲聊或者工具调用路线，Planner 或 Tool 会把答案写在 messages 的最后一条
-        if not answer and final_state.get("messages"):
-            answer = final_state["messages"][-1].content
+                elif kind == "on_chat_model_stream" and "draft_llm" in tags:
+                    chunk = event["data"]["chunk"].content
+                    if chunk:
+                        yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
 
-        is_hallucinated = final_state.get("is_hallucinated", False)
+                elif kind == "on_chain_end" and name == "responder":
+                    output = event["data"]["output"]
+                    is_hallucinated = output.get("is_hallucinated", False)
+                    yield f"data: {json.dumps({'type': 'verification', 'is_hallucinated': is_hallucinated})}\n\n"
 
-        print("📤 API 请求处理完毕，准备返回给前端。")
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
-        return ChatResponse(
-            answer=answer,
-            is_hallucinated=is_hallucinated
-        )
+        except Exception as e:
+            logger.error(f"流式输出异常: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
 
-    except Exception as e:
-        print(f"❌ 运行工作流时发生致命错误: {e}")
-        # 给前端返回标准的 500 报错格式
-        raise HTTPException(status_code=500, detail=f"Agent 内部执行错误: {str(e)}")
+    return StreamingResponse(event_generator(), media_type="text/event-stream")

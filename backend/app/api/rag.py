@@ -1,65 +1,110 @@
-import os
 import shutil
+import json
+from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, HTTPException
-from pydantic import BaseModel
 
-from app.rag.ingest import SemanticChunker
-from app.rag.embedding import VectorDBManager
+from app.core.config import settings
+from app.core.logger import logger
+from app.rag.ingest import ingest_document
 
 router = APIRouter()
 
-# 初始化 RAG 处理模块
-chunker = SemanticChunker()
-vdb_manager = VectorDBManager()
 
-# 确保本地数据目录存在，符合 README 的目录规划[cite: 2]
-DOCS_DIR = os.path.join(os.getcwd(), "data", "docs")
-os.makedirs(DOCS_DIR, exist_ok=True)
+# =========================
+# 工具函数
+# =========================
+def load_documents():
+    meta_file = settings.DATA_DIR / "documents.json"
+    if not meta_file.exists():
+        return []
 
-
-class UploadResponse(BaseModel):
-    filename: str
-    message: str
-    chunks_count: int
+    with open(meta_file, "r", encoding="utf-8") as f:
+        return json.load(f)
 
 
-@router.post("/upload", response_model=UploadResponse)
+def save_documents(docs):
+    meta_file = settings.DATA_DIR / "documents.json"
+    with open(meta_file, "w", encoding="utf-8") as f:
+        json.dump(docs, f, ensure_ascii=False, indent=2)
+
+
+# =========================
+# 1️⃣ 上传文档
+# =========================
+@router.post("/upload")
 async def upload_document(file: UploadFile = File(...)):
-    """
-    上传文档端点：自动执行 [保存 -> 格式转换 -> 语义分块 -> 向量化 -> 入库] 全流程
-    """
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="没有提供文件")
-
-    file_path = os.path.join(DOCS_DIR, file.filename)
-
     try:
-        # 1. 保存上传的文件到本地 `data/docs/` 目录
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-        print(f"\n📄 [RAG API] 文件已成功保存至本地: {file_path}")
+        file_path = settings.DOCS_DIR / file.filename
 
-        # 2. 调用 MarkItDown 和 SemanticChunker 进行语义分块
-        print("✂️ [RAG API] 正在调用底层模型进行文档解析与语义分块...")
-        chunks = chunker.process_document(file_path)
+        # 保存文件
+        with open(file_path, "wb") as f:
+            shutil.copyfileobj(file.file, f)
 
-        if not chunks:
-            raise HTTPException(status_code=400, detail="未能从文档中提取到有效的文本内容。")
+        logger.info(f"文件已保存: {file.filename}")
 
-        # 3. 调用本地大模型计算 Embeddings 并写入 Qdrant
-        print(f"🧠 [RAG API] 解析成功！准备将 {len(chunks)} 个 Chunk 向量化并存入数据库...")
-        vdb_manager.store_chunks(chunks)
+        # 处理文档（同步版本）
+        meta = ingest_document(file_path)
 
-        print("✅ [RAG API] 知识库录入全流程完成！")
-        return UploadResponse(
-            filename=file.filename,
-            message="文件上传、解析并向量化入库成功！",
-            chunks_count=len(chunks)
-        )
+        return {
+            "id": meta["id"],
+            "filename": meta["name"],
+            "chunks_count": meta["chunks"],
+            "status": meta["status"]
+        }
 
     except Exception as e:
-        print(f"❌ [RAG API] 文档处理失败: {e}")
-        raise HTTPException(status_code=500, detail=f"文档处理失败: {str(e)}")
-    finally:
-        # 释放文件指针
-        file.file.close()
+        logger.error(f"上传失败: {e}")
+        raise HTTPException(status_code=500, detail="文件上传失败")
+
+
+# =========================
+# 2️⃣ 获取文档列表
+# =========================
+@router.get("/documents")
+def get_documents():
+    docs = load_documents()
+    return docs
+
+
+# =========================
+# 3️⃣ 启用 / 禁用文档
+# =========================
+@router.patch("/document/{doc_id}")
+def toggle_document(doc_id: str, payload: dict):
+    docs = load_documents()
+
+    found = False
+    for d in docs:
+        if d["id"] == doc_id:
+            d["enabled"] = payload.get("enabled", True)
+            found = True
+            break
+
+    if not found:
+        raise HTTPException(status_code=404, detail="文档不存在")
+
+    save_documents(docs)
+
+    return {"message": "updated"}
+
+
+# =========================
+# 4️⃣ 删除文档
+# =========================
+@router.delete("/document/{doc_id}")
+def delete_document(doc_id: str):
+    docs = load_documents()
+
+    new_docs = [d for d in docs if d["id"] != doc_id]
+
+    if len(new_docs) == len(docs):
+        raise HTTPException(status_code=404, detail="文档不存在")
+
+    # 删除向量文件
+    vector_path = settings.VECTOR_STORE_DIR / f"{doc_id}.json"
+    if vector_path.exists():
+        vector_path.unlink()
+
+    save_documents(new_docs)
+
+    return {"message": "deleted"}

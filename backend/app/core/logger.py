@@ -1,43 +1,55 @@
-import os
 import logging
-from sys import stdout
-from .config import settings
+import sys
+from pathlib import Path
+from datetime import datetime
 
-# 确保 logs 目录存在（对应 .gitignore 里的 logs/）
-LOG_DIR = os.path.join(os.getcwd(), "logs")
-os.makedirs(LOG_DIR, exist_ok=True)
+from app.core.config import settings
 
 
-def setup_logger(name: str = "ai_copilot") -> logging.Logger:
+def setup_logger(name: str = "app") -> logging.Logger:
     """
-    配置并返回一个全局的 Logger 实例。
-    同时输出到控制台和本地文件。
+    创建并返回一个标准 Logger
     """
+
     logger = logging.getLogger(name)
 
-    # 避免重复添加 Handler 导致日志重复打印
-    if not logger.handlers:
-        logger.setLevel(logging.INFO)
+    # 避免重复添加 handler
+    if logger.handlers:
+        return logger
 
-        # 定义日志输出格式
-        formatter = logging.Formatter(
-            fmt="%(asctime)s | %(levelname)-8s | %(module)s:%(funcName)s | %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S"
-        )
+    logger.setLevel(logging.INFO)
 
-        # 1. 控制台处理器 (StreamHandler)
-        console_handler = logging.StreamHandler(stdout)
-        console_handler.setFormatter(formatter)
-        logger.addHandler(console_handler)
+    # =========================
+    # 日志格式
+    # =========================
+    formatter = logging.Formatter(
+        "[%(asctime)s] [%(levelname)s] [%(name)s] - %(message)s",
+        "%Y-%m-%d %H:%M:%S"
+    )
 
-        # 2. 文件处理器 (FileHandler) - 按 utf-8 编码写入文件
-        log_file_path = os.path.join(LOG_DIR, "app.log")
-        file_handler = logging.FileHandler(log_file_path, encoding="utf-8")
-        file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
+    # =========================
+    # 控制台输出
+    # =========================
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+
+    # =========================
+    # 文件日志（按天）
+    # =========================
+    log_dir = settings.DATA_DIR / "logs"
+    log_dir.mkdir(exist_ok=True)
+
+    log_file = log_dir / f"{datetime.now().strftime('%Y-%m-%d')}.log"
+
+    file_handler = logging.FileHandler(log_file, encoding="utf-8")
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
 
     return logger
 
 
-# 导出一个实例化好的 logger 供全局使用
-logger = setup_logger()
+# =========================
+# 全局 logger（推荐直接用）
+# =========================
+logger = setup_logger("LocalAICopilot")
