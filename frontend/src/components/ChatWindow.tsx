@@ -6,7 +6,7 @@ import {
     FileText, Paperclip, ChevronDown, ChevronUp, FileCode2, FileType2, AlignLeft
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
-import { chatWithAgent } from '../lib/api';
+import { chatWithAgent, streamChatWithAgent } from '../lib/api';
 
 interface Source {
     docName: string;
@@ -140,11 +140,21 @@ export default function ChatWindow() {
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        // 正在打字时用瞬间滚动 (auto)，打字结束后再用平滑滚动 (smooth)
+        messagesEndRef.current?.scrollIntoView({ behavior: isLoading ? 'auto' : 'smooth' });
     }, [messages, isLoading]);
 
     const handleSend = async () => {
         if (!input.trim() || isLoading) return;
+
+        // 截取最近的 6 条历史消息（排除欢迎语和报错提示）
+        const historyToSend = messages
+            .filter(msg => msg.id !== 'welcome' && !msg.content.includes('❌'))
+            .slice(-6) // 只保留最近 3 轮对话，节省 Token 和计算时间
+            .map(msg => ({
+                role: msg.role,
+                content: msg.content
+            }));
 
         const userMessage: Message = {
             id: Date.now().toString(),
@@ -157,33 +167,56 @@ export default function ChatWindow() {
         setInput('');
         setIsLoading(true);
 
-        try {
-            const response = await chatWithAgent({ query: userMessage.content, mode });
+        const aiMessageId = (Date.now() + 1).toString();
+        const initialAiMessage: Message = {
+            id: aiMessageId,
+            role: 'assistant',
+            content: '',
+            timestamp: getCurrentTime(),
+            sources: [],
+            isHallucinated: false
+        };
+        setMessages((prev) => [...prev, initialAiMessage]);
 
-            const aiMessage: Message = {
-                id: (Date.now() + 1).toString(),
-                role: 'assistant',
-                content: response.answer,
-                timestamp: getCurrentTime(),
-                isHallucinated: response.is_hallucinated,
-                sources: response.sources || [],
-                snippets: 'Mocked snippet content for demonstration based on the query...'
-            };
+        await streamChatWithAgent(
+            {
+                query: userMessage.content,
+                mode,
+                history: historyToSend // 将历史记录传给后端
+            },
+            {
+                onSource: (sources) => {
+                    // 将所有 chunk 的内容拼接为可读的片段字符串
+                    const combinedSnippets = sources
+                        .filter(s => s.content)
+                        .map((s, i) => `**来源 ${i + 1} (${s.docName})**:\n${s.content}`)
+                        .join('\n\n---\n\n');
 
-            setMessages((prev) => [...prev, aiMessage]);
-        } catch {
-            setMessages((prev) => [
-                ...prev,
-                {
-                    id: Date.now().toString(),
-                    role: 'assistant',
-                    content: '❌ 抱歉，与本地 Agent 通信失败，请检查后端服务。',
-                    timestamp: getCurrentTime()
+                    setMessages((prev) => prev.map(msg =>
+                        msg.id === aiMessageId ? { ...msg, sources, snippets: combinedSnippets } : msg
+                    ));
+                },
+                onChunk: (chunk) => {
+                    setMessages((prev) => prev.map(msg =>
+                        msg.id === aiMessageId ? { ...msg, content: msg.content + chunk } : msg
+                    ));
+                },
+                onVerify: (isHallucinated) => {
+                    setMessages((prev) => prev.map(msg =>
+                        msg.id === aiMessageId ? { ...msg, isHallucinated } : msg
+                    ));
+                },
+                onError: (err) => {
+                    setMessages((prev) => prev.map(msg =>
+                        msg.id === aiMessageId ? { ...msg, content: msg.content + `\n\n❌ 抱歉，发生错误: ${err}` } : msg
+                    ));
+                    setIsLoading(false);
+                },
+                onDone: () => {
+                    setIsLoading(false);
                 }
-            ]);
-        } finally {
-            setIsLoading(false);
-        }
+            }
+        );
     };
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -292,7 +325,7 @@ export default function ChatWindow() {
                             </button>
                         </div>
 
-                        {/* ✅ 移除了 min-h，将 py-2 改为 py-2.5 使得单行文字垂直居中 */}
+                        {/* 单行文字垂直居中 */}
                         <textarea
                             value={input}
                             onChange={(e) => setInput(e.target.value)}

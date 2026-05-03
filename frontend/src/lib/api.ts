@@ -25,10 +25,16 @@ const handleError = (error: any, tag: string): never => {
 // 1️⃣ Chat
 // ================================
 
+export interface ChatMessage {
+    role: 'user' | 'assistant';
+    content: string;
+}
+
 export interface ChatRequest {
   query: string;
   mode?: 'rag' | 'chat'; // 默认 rag
   doc_ids?: string[]; // 参与检索的文档
+  history?: ChatMessage[]; // 历史对话上下文
 }
 
 export interface Source {
@@ -159,4 +165,59 @@ export const checkHealth = async (): Promise<boolean> => {
   } catch {
     return false;
   }
+};
+
+// ================================
+// 流式对话接口 (SSE)
+// ================================
+export const streamChatWithAgent = async (
+    payload: ChatRequest,
+    callbacks: {
+        onSource: (sources: Source[]) => void;
+        onChunk: (chunk: string) => void;
+        onVerify: (isHallucinated: boolean) => void;
+        onError: (err: string) => void;
+        onDone: () => void;
+    }
+) => {
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/chat/`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.body) throw new Error('No response body stream');
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n\n');
+            buffer = lines.pop() || ''; // 保留未完整的片段
+
+            for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                    const dataStr = line.slice(6);
+                    try {
+                        const data = JSON.parse(dataStr);
+                        if (data.type === 'sources') callbacks.onSource(data.data);
+                        else if (data.type === 'chunk') callbacks.onChunk(data.content);
+                        else if (data.type === 'verification') callbacks.onVerify(data.is_hallucinated);
+                        else if (data.type === 'error') callbacks.onError(data.content);
+                        else if (data.type === 'done') callbacks.onDone();
+                    } catch (e) {
+                        console.error("JSON parse error for SSE message:", dataStr);
+                    }
+                }
+            }
+        }
+    } catch (error: any) {
+        callbacks.onError(error.message);
+    }
 };

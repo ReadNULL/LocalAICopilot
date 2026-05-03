@@ -1,11 +1,11 @@
 'use client';
 
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import {
     FileText, Loader2, Database, CheckCircle2, AlertCircle,
     Settings, Plus, Search, Layers, FileCode2, FileType2, AlignLeft
 } from 'lucide-react';
-import { uploadDocument } from '../lib/api';
+import { uploadDocument, fetchDocuments, toggleDocument } from '../lib/api';
 
 interface DocFile {
     id: string;
@@ -20,18 +20,31 @@ interface DocFile {
 export default function Sidebar() {
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    // 默认提供一些 Mock 数据以便预览 UI 效果
-    const [files, setFiles] = useState<DocFile[]>([
-        { id: '1', name: 'Transformer论文.pdf', chunks: 128, status: 'ready', enabled: true, createdAt: '2小时前', type: 'pdf' },
-        { id: '2', name: 'attention机制.md', chunks: 86, status: 'ready', enabled: true, createdAt: '5小时前', type: 'md' },
-        { id: '3', name: '大模型综述.docx', chunks: 156, status: 'ready', enabled: true, createdAt: '1天前', type: 'docx' },
-        { id: '4', name: 'RAG技术总结.txt', chunks: 0, status: 'processing', enabled: false, createdAt: '刚刚', type: 'txt' },
-        { id: '5', name: '向量数据库指南.pdf', chunks: 210, status: 'ready', enabled: true, createdAt: '3天前', type: 'pdf' },
-        { id: '6', name: '提示工程实践.md', chunks: 0, status: 'error', enabled: false, createdAt: '4天前', type: 'md' },
-    ]);
+    const [files, setFiles] = useState<DocFile[]>([]);
     const [isUploading, setIsUploading] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [activeTab, setActiveTab] = useState<'all' | 'enabled' | 'disabled'>('all');
+
+    useEffect(() => {
+        const loadDocs = async () => {
+            try {
+                const docs = await fetchDocuments();
+                const formattedDocs: DocFile[] = docs.map(d => ({
+                    id: d.id,
+                    name: d.name,
+                    chunks: d.chunks,
+                    status: d.status,
+                    enabled: d.enabled,
+                    createdAt: d.created_at,
+                    type: (d.name.split('.').pop()?.toLowerCase() || 'txt') as any
+                }));
+                setFiles(formattedDocs);
+            } catch (error) {
+                console.error("加载文档失败", error);
+            }
+        };
+        loadDocs();
+    }, []);
 
     const handleUploadClick = () => {
         fileInputRef.current?.click();
@@ -84,12 +97,15 @@ export default function Sidebar() {
         }
     };
 
-    const toggleEnable = (id: string) => {
-        setFiles(prev =>
-            prev.map(f =>
-                f.id === id ? { ...f, enabled: !f.enabled } : f
-            )
-        );
+    const handleToggleEnable = async (id: string, currentEnabled: boolean) => {
+        // 乐观更新 UI
+        setFiles(prev => prev.map(f => f.id === id ? { ...f, enabled: !currentEnabled } : f));
+        try {
+            await toggleDocument(id, !currentEnabled);
+        } catch (error) {
+            // 失败则回滚
+            setFiles(prev => prev.map(f => f.id === id ? { ...f, enabled: currentEnabled } : f));
+        }
     };
 
     const filteredFiles = files.filter(f => {
@@ -112,7 +128,7 @@ export default function Sidebar() {
     };
 
     return (
-        // ✅ 边框改为浅灰色 border-gray-200，并加了轻量阴影
+        // 边框改为浅灰色 border-gray-200，并加了轻量阴影
         <div className="w-80 bg-white border-r border-gray-200 h-screen flex flex-col z-20 shadow-sm relative">
 
             {/* Header / Logo */}
@@ -195,7 +211,7 @@ export default function Sidebar() {
                     </button>
                 </div>
 
-                {/* ✅ 文档列表 - 使用 divide-y 来实现统一的浅灰色分割线 */}
+                {/* 文档列表 */}
                 <div className="flex-1 overflow-y-auto -mx-2 px-2 divide-y divide-gray-100 hide-scrollbar">
                     {filteredFiles.length === 0 ? (
                         <div className="text-sm text-gray-400 text-center mt-10">暂无文档</div>
@@ -241,7 +257,7 @@ export default function Sidebar() {
                                                 type="checkbox"
                                                 className="sr-only peer"
                                                 checked={file.enabled}
-                                                onChange={() => toggleEnable(file.id)}
+                                                onChange={() => handleToggleEnable(file.id, file.enabled)}
                                             />
                                             <div className="w-7 h-4 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600"></div>
                                         </label>
@@ -253,7 +269,7 @@ export default function Sidebar() {
                 </div>
             </div>
 
-            {/* ✅ 底部管理入口与头像区的重构 - 彻底解决重叠 */}
+            {/* 底部管理入口与头像区的重构 */}
             <div className="mt-auto flex flex-col">
                 <div className="p-4 border-t border-gray-100 bg-gray-50/50">
                     <button className="w-full flex items-center justify-center gap-2 py-2.5 text-sm text-blue-600 font-medium bg-white hover:bg-blue-50 border border-blue-100 rounded-lg shadow-sm transition-colors">
