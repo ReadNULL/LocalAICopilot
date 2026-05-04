@@ -221,3 +221,87 @@ local-ai-copilot/
 - **兜底回答**：检索结果相似度极低或为空时，强制回答"未找到相关信息"，阻断编造路径。  
 - **输出自校验**：大模型生成初版回答后，进行二次自我检查（标注 ✅ 有依据 / ❌ 无依据 / ⚠️ 部分依据），并将报告一并展示给用户。
 
+## 关键流程
+
+### Agent工作流
+```mermaid
+graph TD
+    subgraph "用户请求"
+        Start[("用户输入")]
+    end
+    
+    subgraph "backend/app/agent/graph.py"
+        Start -->|"query + messages"| Planner["planner_action()"]
+        
+        Planner -->|"分析请求并决策"| Route1["route_after_planner()"]
+        
+        Route1 -->|"检测到 tool_calls"| Tools["tools<br/>ToolExecutionNode"]
+        Route1 -->|"检测到 <NEED_RAG_SEARCH>"| Retrieve["retrieve<br/>AdvancedRetriever"]
+        Route1 -->|"普通对话"| Responder["responder<br/>ResponderNode"]
+        
+        Tools -->|"执行工具结果"| Route2["route_after_tools()"]
+        Route2 -->|"需要继续规划"| Planner
+        Route2 -->|"完成"| Responder
+        
+        Retrieve -->|"重排序后的文档"| Responder
+        
+        Responder -->|"final_answer + validity_check"| End[("返回结果")]
+    end
+    
+    subgraph "backend/app/rag/retriever.py"
+        Retrieve -->|"query"| Expand["_generate_expanded_queries()"]
+        Expand -->|"生成3个等价查询"| HyDE["_generate_hyde_answer()"]
+        HyDE -->|"生成假设性回答"| Single["_single_retrieve()"]
+        Single -->|"混合检索 + RRF融合"| Rerank["AdvancedReranker"]
+    end
+    
+    subgraph "backend/app/agent/nodes/responder.py"
+        Responder -->|"draft_answer + docs"| SelfCheck["_self_check()"]
+        SelfCheck -->|"事实核查报告"| End
+    end
+    
+    style Planner fill:#e3f2fd,color:#0d47a1
+    style Tools fill:#fff3e0,color:#e65100
+    style Retrieve fill:#c8e6c9,color:#1a5e20
+    style Responder fill:#f3e5f5,color:#7b1fa2
+    style SelfCheck fill:#ffebee,color:#c62828
+```
+
+### RAG流
+
+```mermaid
+sequenceDiagram
+    participant User as 用户
+    participant Planner as PlannerNode
+    participant Retriever as AdvancedRetriever
+    participant LLM as Ollama LLM
+    participant Qdrant as Qdrant 向量库
+    participant Reranker as AdvancedReranker
+    participant Responder as ResponderNode
+    
+    User->>Planner: 发送查询
+    Planner->>LLM: 分析是否需要 RAG
+    LLM-->>Planner: 返回决策 + <NEED_RAG_SEARCH>
+    Planner->>Retriever: 触发检索
+    
+    Retriever->>LLM: 请求查询扩展
+    LLM-->>Retriever: 返回3个等价查询
+    Retriever->>LLM: 请求 HyDE 假设回答
+    LLM-->>Retriever: 返回假设性答案
+    
+    loop 对每个查询 (原始+扩展+HyDE)
+        Retriever->>Qdrant: 稠密检索 + 稀疏检索
+        Qdrant-->>Retriever: 返回候选文档
+    end
+    
+    Retriever->>Retriever: 去重 (基于内容前100字符)
+    Retriever->>Reranker: Top-20 文档
+    Reranker->>Reranker: BGE-Reranker 重排序
+    Reranker-->>Responder: Top-5 文档
+    
+    Responder->>LLM: 生成回答
+    LLM-->>Responder: 草稿回答
+    Responder->>LLM: 事实核查 (回答 vs 文档)
+    LLM-->>Responder: 核查报告 (✅/❌/⚠️)
+    Responder-->>User: 最终回答 + 核查报告
+```
