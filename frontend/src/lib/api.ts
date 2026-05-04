@@ -175,7 +175,7 @@ export const streamChatWithAgent = async (
     callbacks: {
         onSource: (sources: Source[]) => void;
         onChunk: (chunk: string) => void;
-        onVerify: (isHallucinated: boolean) => void;
+        onVerify: (isHallucinated: boolean, validityCheck: string) => void;
         onError: (err: string) => void;
         onDone: () => void;
     }
@@ -208,7 +208,7 @@ export const streamChatWithAgent = async (
                         const data = JSON.parse(dataStr);
                         if (data.type === 'sources') callbacks.onSource(data.data);
                         else if (data.type === 'chunk') callbacks.onChunk(data.content);
-                        else if (data.type === 'verification') callbacks.onVerify(data.is_hallucinated);
+                        else if (data.type === 'verification') callbacks.onVerify(data.is_hallucinated, data.validity_check || '');
                         else if (data.type === 'error') callbacks.onError(data.content);
                         else if (data.type === 'done') callbacks.onDone();
                     } catch (e) {

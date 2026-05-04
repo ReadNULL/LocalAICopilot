@@ -6,7 +6,7 @@ import {
     FileText, Paperclip, ChevronDown, ChevronUp, FileCode2, FileType2, AlignLeft
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
-import { chatWithAgent, streamChatWithAgent } from '../lib/api';
+import { streamChatWithAgent } from '../lib/api';
 
 interface Source {
     docName: string;
@@ -21,6 +21,7 @@ interface Message {
     content: string;
     timestamp: string;
     isHallucinated?: boolean;
+    validityCheck?: string;
     sources?: Source[];
     snippets?: string;
 }
@@ -102,6 +103,17 @@ const AssistantMessage = ({ msg }: { msg: Message }) => {
                         <AlertTriangle className="w-3 h-3" /> 可能缺乏知识库依据
                     </div>
                 )}
+
+                {msg.validityCheck && (
+                    <div className="mt-2 border border-gray-200 rounded-lg overflow-hidden bg-white shadow-sm">
+                        <div className="px-4 py-3 bg-gray-50/50 text-xs font-medium text-gray-700">
+                            事实核查报告
+                        </div>
+                        <div className="px-4 py-3 border-t border-gray-100 bg-white text-xs text-gray-600 leading-relaxed whitespace-pre-wrap">
+                            {msg.validityCheck}
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );
@@ -136,8 +148,21 @@ export default function ChatWindow() {
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [mode, setMode] = useState<'rag' | 'chat'>('rag');
+    const [showModeDropdown, setShowModeDropdown] = useState(false);
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const abortControllerRef = useRef<AbortController | null>(null);
+    const modeDropdownRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            if (modeDropdownRef.current && !modeDropdownRef.current.contains(e.target as Node)) {
+                setShowModeDropdown(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
 
     useEffect(() => {
         // 正在打字时用瞬间滚动 (auto)，打字结束后再用平滑滚动 (smooth)
@@ -147,10 +172,11 @@ export default function ChatWindow() {
     const handleSend = async () => {
         if (!input.trim() || isLoading) return;
 
-        // 截取最近的 6 条历史消息（排除欢迎语和报错提示）
+        abortControllerRef.current?.abort();
+
         const historyToSend = messages
             .filter(msg => msg.id !== 'welcome' && !msg.content.includes('❌'))
-            .slice(-6) // 只保留最近 3 轮对话，节省 Token 和计算时间
+            .slice(-6)
             .map(msg => ({
                 role: msg.role,
                 content: msg.content
@@ -178,45 +204,45 @@ export default function ChatWindow() {
         };
         setMessages((prev) => [...prev, initialAiMessage]);
 
-        await streamChatWithAgent(
-            {
-                query: userMessage.content,
-                mode,
-                history: historyToSend // 将历史记录传给后端
-            },
-            {
-                onSource: (sources) => {
-                    // 将所有 chunk 的内容拼接为可读的片段字符串
-                    const combinedSnippets = sources
-                        .filter(s => s.content)
-                        .map((s, i) => `**来源 ${i + 1} (${s.docName})**:\n${s.content}`)
-                        .join('\n\n---\n\n');
+        try {
+            await streamChatWithAgent(
+                {
+                    query: userMessage.content,
+                    mode,
+                    history: historyToSend
+                },
+                {
+                    onSource: (sources) => {
+                        const combinedSnippets = sources
+                            .filter(s => s.content)
+                            .map((s, i) => `**来源 ${i + 1} (${s.docName})**:\n${s.content}`)
+                            .join('\n\n---\n\n');
 
-                    setMessages((prev) => prev.map(msg =>
-                        msg.id === aiMessageId ? { ...msg, sources, snippets: combinedSnippets } : msg
-                    ));
-                },
-                onChunk: (chunk) => {
-                    setMessages((prev) => prev.map(msg =>
-                        msg.id === aiMessageId ? { ...msg, content: msg.content + chunk } : msg
-                    ));
-                },
-                onVerify: (isHallucinated) => {
-                    setMessages((prev) => prev.map(msg =>
-                        msg.id === aiMessageId ? { ...msg, isHallucinated } : msg
-                    ));
-                },
-                onError: (err) => {
-                    setMessages((prev) => prev.map(msg =>
-                        msg.id === aiMessageId ? { ...msg, content: msg.content + `\n\n❌ 抱歉，发生错误: ${err}` } : msg
-                    ));
-                    setIsLoading(false);
-                },
-                onDone: () => {
-                    setIsLoading(false);
+                        setMessages((prev) => prev.map(msg =>
+                            msg.id === aiMessageId ? { ...msg, sources, snippets: combinedSnippets } : msg
+                        ));
+                    },
+                    onChunk: (chunk) => {
+                        setMessages((prev) => prev.map(msg =>
+                            msg.id === aiMessageId ? { ...msg, content: msg.content + chunk } : msg
+                        ));
+                    },
+                    onVerify: (isHallucinated, validityCheck) => {
+                        setMessages((prev) => prev.map(msg =>
+                            msg.id === aiMessageId ? { ...msg, isHallucinated, validityCheck } : msg
+                        ));
+                    },
+                    onError: (err) => {
+                        setMessages((prev) => prev.map(msg =>
+                            msg.id === aiMessageId ? { ...msg, content: msg.content + `\n\n❌ 抱歉，发生错误: ${err}` } : msg
+                        ));
+                    },
+                    onDone: () => {}
                 }
-            }
-        );
+            );
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -232,10 +258,50 @@ export default function ChatWindow() {
                 <h2 className="font-semibold text-gray-800 text-base">新会话</h2>
 
                 <div className="ml-8 flex items-center gap-6 text-gray-600">
-                    <div className="flex items-center gap-2 bg-green-50 border border-green-100 text-green-700 px-3 py-1.5 rounded-md text-xs font-medium cursor-pointer">
-                        <Database className="w-3.5 h-3.5" />
-                        RAG 增强模式
-                        <ChevronDown className="w-3 h-3 ml-1" />
+                    <div className="relative" ref={modeDropdownRef}>
+                        <button
+                            onClick={() => setShowModeDropdown(!showModeDropdown)}
+                            className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium border transition-colors ${
+                                mode === 'rag'
+                                    ? 'bg-green-50 border-green-200 text-green-700'
+                                    : 'bg-blue-50 border-blue-200 text-blue-700'
+                            }`}
+                        >
+                            {mode === 'rag' ? (
+                                <>
+                                    <Database className="w-3.5 h-3.5" />RAG 增强模式
+                                </>
+                            ) : (
+                                <>
+                                    <Bot className="w-3.5 h-3.5" />普通对话
+                                </>
+                            )}
+                            <ChevronDown className={`w-3 h-3 ml-1 transition-transform ${showModeDropdown ? 'rotate-180' : ''}`} />
+                        </button>
+                        {showModeDropdown && (
+                            <div className="absolute top-full mt-1 left-0 w-44 bg-white border border-gray-200 rounded-lg shadow-lg z-50 overflow-hidden">
+                                <button
+                                    onClick={() => { setMode('rag'); setShowModeDropdown(false); }}
+                                    className={`w-full flex items-center gap-2 px-3 py-2.5 text-xs font-medium transition-colors hover:bg-gray-50 ${
+                                        mode === 'rag' ? 'text-green-700 bg-green-50/50' : 'text-gray-600'
+                                    }`}
+                                >
+                                    <Database className="w-3.5 h-3.5" />
+                                    RAG 增强模式
+                                    {mode === 'rag' && <span className="ml-auto text-green-500">✓</span>}
+                                </button>
+                                <button
+                                    onClick={() => { setMode('chat'); setShowModeDropdown(false); }}
+                                    className={`w-full flex items-center gap-2 px-3 py-2.5 text-xs font-medium transition-colors hover:bg-gray-50 ${
+                                        mode === 'chat' ? 'text-blue-700 bg-blue-50/50' : 'text-gray-600'
+                                    }`}
+                                >
+                                    <Bot className="w-3.5 h-3.5" />
+                                    普通对话
+                                    {mode === 'chat' && <span className="ml-auto text-blue-500">✓</span>}
+                                </button>
+                            </div>
+                        )}
                     </div>
                     <span>当前知识库：<span className="font-medium text-gray-800">默认知识库</span></span>
                     <span className="flex items-center gap-1.5">

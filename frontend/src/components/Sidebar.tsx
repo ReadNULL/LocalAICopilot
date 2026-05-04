@@ -3,9 +3,9 @@
 import React, { useRef, useState, useEffect } from 'react';
 import {
     FileText, Loader2, Database, CheckCircle2, AlertCircle,
-    Settings, Plus, Search, Layers, FileCode2, FileType2, AlignLeft
+    Settings, Plus, Search, Layers, FileCode2, FileType2, AlignLeft, Trash2
 } from 'lucide-react';
-import { uploadDocument, fetchDocuments, toggleDocument } from '../lib/api';
+import { uploadDocument, fetchDocuments, toggleDocument, deleteDocument } from '../lib/api';
 
 interface DocFile {
     id: string;
@@ -98,13 +98,21 @@ export default function Sidebar() {
     };
 
     const handleToggleEnable = async (id: string, currentEnabled: boolean) => {
-        // 乐观更新 UI
         setFiles(prev => prev.map(f => f.id === id ? { ...f, enabled: !currentEnabled } : f));
         try {
             await toggleDocument(id, !currentEnabled);
         } catch (error) {
-            // 失败则回滚
             setFiles(prev => prev.map(f => f.id === id ? { ...f, enabled: currentEnabled } : f));
+        }
+    };
+
+    const handleDeleteDocument = async (id: string, name: string) => {
+        if (!confirm(`确定要删除文档 "${name}" 吗？此操作不可撤销。`)) return;
+        setFiles(prev => prev.filter(f => f.id !== id));
+        try {
+            await deleteDocument(id);
+        } catch (error) {
+            console.error("删除文档失败", error);
         }
     };
 
@@ -224,9 +232,13 @@ export default function Sidebar() {
                                         <h3 className="text-[13px] font-medium text-gray-800 truncate" title={file.name}>
                                             {file.name}
                                         </h3>
-                                        <span className="text-[10px] text-gray-400 whitespace-nowrap ml-2">
-                                            {file.createdAt}
-                                        </span>
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); handleDeleteDocument(file.id, file.name); }}
+                                            className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-all"
+                                            title="删除文档"
+                                        >
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                        </button>
                                     </div>
                                     <div className="flex items-center justify-between">
                                         <div className="text-[11px] text-gray-500 flex items-center gap-1.5">
