@@ -1,3 +1,4 @@
+import httpx
 from langchain_core.documents import Document
 from qdrant_client.models import Prefetch, FusionQuery, Fusion, SparseVector, Filter, FieldCondition, MatchAny
 from app.core.config import settings
@@ -5,31 +6,60 @@ from app.rag.embedding import embedding_model
 from app.rag.vector_store import vector_store
 from app.rag.ingest import sparse_model
 
+
 class AdvancedRetriever:
-    def retrieve(self, query: str, doc_ids: list[str] = None) -> list[Document]:
-        # 1. 生成查询的稠密与稀疏向量
-        query_dense_vec = embedding_model.embed(query)
-        query_sparse_vec = list(sparse_model.embed([query]))[0]
+    def __init__(self):
+        self.ollama_url = settings.OLLAMA_BASE_URL.rstrip('/')
+        self.llm_model = settings.LLM_MODEL_NAME
 
-        # 2. 构造文档过滤条件（如果选中了特定文档）
-        query_filter = None
-        if doc_ids:
-            query_filter = Filter(
-                must=[FieldCondition(key="doc_id", match=MatchAny(any=doc_ids))]
-            )
+    def _generate_expanded_queries(self, query: str) -> list[str]:
+        prompt = f"""你是一个查询扩展助手。针对以下用户问题，生成 3 个不同角度、不同措辞的等价查询，用于提高检索召回率。
+只输出查询本身，每行一个，不要编号，不要解释。
 
-        # 3. 让 Qdrant 底层极速执行双路检索与 RRF 融合
+用户问题: {query}
+
+等价查询:"""
+        try:
+            payload = {"model": self.llm_model, "prompt": prompt, "stream": False, "options": {"temperature": 0.3}}
+            with httpx.Client(timeout=30) as client:
+                resp = client.post(f"{self.ollama_url}/api/generate", json=payload)
+                if resp.status_code == 200:
+                    lines = [l.strip() for l in resp.json().get("response", "").split('\n') if l.strip()]
+                    return lines[:3]
+        except Exception:
+            pass
+        return []
+
+    def _generate_hyde_answer(self, query: str) -> str:
+        prompt = f"""你是一个知识助手。请针对以下问题生成一段假设性的回答（不需要真实准确，只是为了辅助文档检索）。
+回答应包含与问题相关的关键概念和术语。
+
+问题: {query}
+
+假设性回答:"""
+        try:
+            payload = {"model": self.llm_model, "prompt": prompt, "stream": False, "options": {"temperature": 0.5}}
+            with httpx.Client(timeout=30) as client:
+                resp = client.post(f"{self.ollama_url}/api/generate", json=payload)
+                if resp.status_code == 200:
+                    return resp.json().get("response", "")
+        except Exception:
+            pass
+        return ""
+
+    def _single_retrieve(self, query_text: str, query_filter, doc_ids: list[str] = None) -> list[Document]:
+        query_dense_vec = embedding_model.embed(query_text)
+        query_sparse_vec = list(sparse_model.embed([query_text]))[0]
+
         results = vector_store.client.query_points(
             collection_name=vector_store.collection_name,
             prefetch=[
-                # 稠密检索预抓取
                 Prefetch(
                     query=query_dense_vec,
                     using="dense",
                     limit=settings.RETRIEVER_TOP_K,
                     filter=query_filter
                 ),
-                # 稀疏检索(BM25)预抓取
                 Prefetch(
                     query=SparseVector(
                         indices=query_sparse_vec.indices.tolist(),
@@ -40,12 +70,10 @@ class AdvancedRetriever:
                     filter=query_filter
                 )
             ],
-            # 告诉 Qdrant 自动执行 RRF 融合
             query=FusionQuery(fusion=Fusion.RRF),
             limit=settings.RETRIEVER_TOP_K,
         )
 
-        # 4. 转化为 LangChain Document 格式供下游使用
         return [
             Document(
                 page_content=res.payload["content"],
@@ -55,3 +83,32 @@ class AdvancedRetriever:
                 }
             ) for res in results.points
         ]
+
+    def retrieve(self, query: str, doc_ids: list[str] = None) -> list[Document]:
+        query_filter = None
+        if doc_ids:
+            query_filter = Filter(
+                must=[FieldCondition(key="doc_id", match=MatchAny(any=doc_ids))]
+            )
+
+        all_docs = []
+        seen = set()
+
+        queries_to_search = [query]
+
+        expanded = self._generate_expanded_queries(query)
+        queries_to_search.extend(expanded)
+
+        hyde_answer = self._generate_hyde_answer(query)
+        if hyde_answer:
+            queries_to_search.append(hyde_answer)
+
+        for q_text in queries_to_search:
+            docs = self._single_retrieve(q_text, query_filter, doc_ids)
+            for doc in docs:
+                key = doc.page_content[:100]
+                if key not in seen:
+                    seen.add(key)
+                    all_docs.append(doc)
+
+        return all_docs[:settings.RETRIEVER_TOP_K]

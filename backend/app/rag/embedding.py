@@ -1,4 +1,4 @@
-import requests
+import httpx
 from typing import List
 
 from app.core.config import settings
@@ -12,35 +12,25 @@ class OllamaEmbedding:
 
     def __init__(self):
         self.base_url = settings.OLLAMA_BASE_URL
-        self.model = settings.EMBEDDING_MODEL
+        self.model = settings.EMBEDDING_MODEL_NAME
 
     def embed(self, text: str) -> List[float]:
-        """
-        单条文本 embedding
-        """
         try:
-            response = requests.post(
-                f"{self.base_url}/api/embeddings",
-                json={
-                    "model": self.model,
-                    "prompt": text
-                },
-                timeout=60
-            )
-
-            response.raise_for_status()
-            data = response.json()
-
-            return data["embedding"]
-
+            with httpx.Client(timeout=60) as client:
+                response = client.post(
+                    f"{self.base_url}/api/embeddings",
+                    json={
+                        "model": self.model,
+                        "prompt": text
+                    }
+                )
+                response.raise_for_status()
+                return response.json()["embedding"]
         except Exception as e:
             logger.error(f"Embedding failed: {e}")
             raise
 
     def embed_batch(self, texts: List[str]) -> List[List[float]]:
-        """
-        批量 embedding（简单循环版本）
-        """
         embeddings = []
         for text in texts:
             embeddings.append(self.embed(text))

@@ -21,7 +21,7 @@ class AdvancedReranker:
         top_k = top_k or settings.RERANK_TOP_K
 
         # 1. 构造模型输入对: [[query, doc1_content], [query, doc2_content], ...]
-        pairs = [[query, doc.content] for doc in docs]
+        pairs = [[query, doc.page_content] for doc in docs]
 
         # 2. 模型打分 (CrossEncoder 直接输出相关性 logit 分数)
         scores = self.model.predict(pairs)

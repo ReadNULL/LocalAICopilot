@@ -2,10 +2,12 @@ import shutil
 import json
 from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, HTTPException
+from qdrant_client.models import Filter, FieldCondition, MatchValue
 
 from app.core.config import settings
 from app.core.logger import logger
 from app.rag.ingest import ingest_document
+from app.rag.vector_store import vector_store
 
 router = APIRouter()
 
@@ -100,10 +102,13 @@ def delete_document(doc_id: str):
     if len(new_docs) == len(docs):
         raise HTTPException(status_code=404, detail="文档不存在")
 
-    # 删除向量文件
-    vector_path = settings.VECTOR_STORE_DIR / f"{doc_id}.json"
-    if vector_path.exists():
-        vector_path.unlink()
+    vector_store.client.delete(
+        collection_name=vector_store.collection_name,
+        points_selector=Filter(
+            must=[FieldCondition(key="doc_id", match=MatchValue(value=doc_id))]
+        )
+    )
+    logger.info(f"已从 Qdrant 中删除文档 {doc_id} 的所有向量")
 
     save_documents(new_docs)
 

@@ -16,7 +16,7 @@ def execute_python_code(code: str) -> str:
 
     try:
         # 在一个干净的全局字典中执行代码
-        exec(code, globals())
+        exec(code, {"__builtins__": __builtins__})
         output = redirected_output.getvalue()
         return output if output else "代码执行成功，但没有产生任何输出 (请确保使用了 print)。"
     except Exception as e:
