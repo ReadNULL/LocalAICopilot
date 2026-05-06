@@ -57,6 +57,8 @@
 
 
  ![img.png](https://github.com/ReadNULL/LocalAICopilot/blob/main/images/demo_png1.png?raw=true)
+ ![img.png](https://github.com/ReadNULL/LocalAICopilot/blob/main/images/demo_png2.png?raw=true)
+ ![img.png](https://github.com/ReadNULL/LocalAICopilot/blob/main/images/demo_png3.png?raw=true)
 
 ---
 
