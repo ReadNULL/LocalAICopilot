@@ -48,20 +48,9 @@ async def chat_stream_endpoint(req: ChatRequest):
 
     async def event_generator():
         try:
-            last_final_answer = None
-
-            async for event in app_graph.astream_events(initial_state, version="v2"):
-                kind = event.get("event", "")
-                node_name = event.get("name", "")
-                data = event.get("data", {})
-
-                if kind == "on_chain_end" and node_name == "responder":
-                    output = data.get("output", {})
-                    if output and "final_answer" in output:
-                        last_final_answer = output.get("final_answer", "")
-
-                if kind == "on_chain_end" and node_name == "retrieve":
-                    output = data.get("output", {})
+            async for event in app_graph.astream(initial_state, stream_mode="updates"):
+                if "retrieve" in event:
+                    output = event.get("retrieve", {})
                     if output and "retrieved_docs" in output:
                         raw_docs = output.get("retrieved_docs", [])
                         sources = [
@@ -74,9 +63,13 @@ async def chat_stream_endpoint(req: ChatRequest):
                         ]
                         yield f"data: {json.dumps({'type': 'sources', 'data': sources})}\n\n"
 
-            if last_final_answer:
-                for char in last_final_answer:
-                    yield f"data: {json.dumps({'type': 'chunk', 'content': char})}\n\n"
+                if "responder" in event:
+                    output = event.get("responder", {})
+                    if output and "final_answer" in output:
+                        final_answer = output.get("final_answer", "")
+                        if final_answer:
+                            for char in final_answer:
+                                yield f"data: {json.dumps({'type': 'chunk', 'content': char})}\n\n"
 
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
         except Exception as e:

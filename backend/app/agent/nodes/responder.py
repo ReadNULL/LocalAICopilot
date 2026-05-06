@@ -50,27 +50,26 @@ class ResponderNode:
         except Exception:
             return ""
 
+    def _call_llm(self, messages):
+        draft_message = self.llm.invoke(messages)
+        return draft_message.content or ""
+
     async def process(self, state: Dict[str, Any]) -> Dict[str, Any]:
         print("📝 [Responder Node] 正在生成回复...")
         docs = state.get("retrieved_docs", [])
         mode = state.get("mode", "rag")
         messages = state.get("messages", [])
 
-        # 过滤掉 Planner 节点产生的 AIMessage，避免 LLM 把它当作历史对话继续补全
         filtered_messages = []
         for msg in messages:
             if isinstance(msg, AIMessage):
                 if hasattr(msg, 'tool_calls') and msg.tool_calls:
                     filtered_messages.append(msg)
-                elif getattr(msg, 'response_metadata', {}).get('from_planner'):
-                    pass
                 else:
                     filtered_messages.append(msg)
             else:
                 filtered_messages.append(msg)
 
-        # 只保留 HumanMessage 历史（去掉 Planner 的 AIMessage 响应）
-        # 保留历史 HumanMessages，去掉最后一条之前的 AIMessages
         human_only = [m for m in filtered_messages if isinstance(m, HumanMessage)]
         if human_only:
             context_messages = human_only
@@ -107,20 +106,34 @@ class ResponderNode:
         
         print(f"   => 正在调用 LLM 生成回复 (model={self.llm.model})...")
         
-        try:
-            draft_message = self.llm.invoke(final_messages)
-            draft_answer = draft_message.content or ""
-            print(f"   => LLM 返回 content: {repr(draft_answer[:200])}")
-        except Exception as e:
-            print(f"   => ❌ LLM 调用异常: {e}")
-            import traceback
-            traceback.print_exc()
-            draft_answer = ""
+        draft_answer = ""
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                if attempt > 0:
+                    print(f"   => 第 {attempt + 1} 次尝试 (模型冷启动重试)...")
+                    time.sleep(1)
+                
+                loop = asyncio.get_event_loop()
+                draft_answer = await loop.run_in_executor(
+                    self.executor,
+                    self._call_llm,
+                    final_messages
+                )
+                
+                print(f"   => LLM 返回 content: {repr(draft_answer[:200])}")
+                if draft_answer:
+                    break
+                print(f"   => ⚠️ 第 {attempt + 1} 次尝试返回空内容")
+            except Exception as e:
+                print(f"   => ❌ LLM 调用异常 (第 {attempt + 1} 次): {e}")
+                import traceback
+                traceback.print_exc()
         
         print(f"   => 回复生成完成 ({len(draft_answer)} 字符)")
 
         if not draft_answer:
-            print("   => ⚠️ 警告: LLM 返回内容为空")
+            print("   => ⚠️ 警告: LLM 多次尝试后仍返回内容为空")
 
         is_hallucinated = "未找到" not in draft_answer and len(docs) == 0 and mode == "rag"
         validity_check = ""
