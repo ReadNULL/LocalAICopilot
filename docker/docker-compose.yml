@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   qdrant:
-    image: qdrant/qdrant:latest
+    image: docker.m.daocloud.io/qdrant/qdrant
     container_name: copilot-qdrant
     ports:
       - "6333:6333"

@@ -28,17 +28,20 @@ tool_node = ToolExecutionNode()
 responder_node = ResponderNode()
 
 
-def retrieve_action(state: AgentState) -> dict:
+async def retrieve_action(state: AgentState) -> dict:
+    print("📚 [Retrieve Node] 开始检索文档...")
     query = state.get("query", "")
     doc_ids = state.get("doc_ids", [])
 
     raw_docs = retriever.retrieve(query, doc_ids=doc_ids)
+    print(f"   => 检索到 {len(raw_docs)} 条文档")
     reranked_docs = reranker.rerank(query, raw_docs)
+    print(f"   => 重排序后保留 {len(reranked_docs)} 条文档")
     return {"retrieved_docs": reranked_docs}
 
 
-def planner_action(state: AgentState) -> dict:
-    result = planner_node.process(state)
+async def planner_action(state: AgentState) -> dict:
+    result = await planner_node.process(state)
     messages = result.get("messages", [])
 
     needs_rag = False
@@ -46,6 +49,9 @@ def planner_action(state: AgentState) -> dict:
         last_msg = messages[-1] if isinstance(messages, list) else messages
         if hasattr(last_msg, "content") and "<NEED_RAG_SEARCH>" in (last_msg.content or ""):
             needs_rag = True
+
+    if state.get("mode", "") == "rag":
+        needs_rag = True
 
     result["needs_rag"] = needs_rag
     return result

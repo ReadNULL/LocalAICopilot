@@ -1,4 +1,5 @@
 import httpx
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from langchain_core.documents import Document
 from qdrant_client.models import Prefetch, FusionQuery, Fusion, SparseVector, Filter, FieldCondition, MatchAny
 from app.core.config import settings
@@ -21,7 +22,7 @@ class AdvancedRetriever:
 等价查询:"""
         try:
             payload = {"model": self.llm_model, "prompt": prompt, "stream": False, "options": {"temperature": 0.3}}
-            with httpx.Client(timeout=30) as client:
+            with httpx.Client(timeout=15) as client:
                 resp = client.post(f"{self.ollama_url}/api/generate", json=payload)
                 if resp.status_code == 200:
                     lines = [l.strip() for l in resp.json().get("response", "").split('\n') if l.strip()]
@@ -39,7 +40,7 @@ class AdvancedRetriever:
 假设性回答:"""
         try:
             payload = {"model": self.llm_model, "prompt": prompt, "stream": False, "options": {"temperature": 0.5}}
-            with httpx.Client(timeout=30) as client:
+            with httpx.Client(timeout=15) as client:
                 resp = client.post(f"{self.ollama_url}/api/generate", json=payload)
                 if resp.status_code == 200:
                     return resp.json().get("response", "")
@@ -96,10 +97,17 @@ class AdvancedRetriever:
 
         queries_to_search = [query]
 
-        expanded = self._generate_expanded_queries(query)
-        queries_to_search.extend(expanded)
+        expanded = []
+        hyde_answer = ""
 
-        hyde_answer = self._generate_hyde_answer(query)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            mqe_future = pool.submit(self._generate_expanded_queries, query)
+            hyde_future = pool.submit(self._generate_hyde_answer, query)
+
+            expanded = mqe_future.result(timeout=20)
+            hyde_answer = hyde_future.result(timeout=20)
+
+        queries_to_search.extend(expanded)
         if hyde_answer:
             queries_to_search.append(hyde_answer)
 

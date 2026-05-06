@@ -1,8 +1,10 @@
+import asyncio
 import shutil
 import json
 from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from qdrant_client.models import Filter, FieldCondition, MatchValue
+from concurrent.futures import ThreadPoolExecutor
 
 from app.core.config import settings
 from app.core.logger import logger
@@ -10,6 +12,8 @@ from app.rag.ingest import ingest_document
 from app.rag.vector_store import vector_store
 
 router = APIRouter()
+
+_executor = ThreadPoolExecutor(max_workers=1)
 
 
 # =========================
@@ -38,14 +42,13 @@ async def upload_document(file: UploadFile = File(...)):
     try:
         file_path = settings.DOCS_DIR / file.filename
 
-        # 保存文件
         with open(file_path, "wb") as f:
             shutil.copyfileobj(file.file, f)
 
         logger.info(f"文件已保存: {file.filename}")
 
-        # 处理文档（同步版本）
-        meta = ingest_document(file_path)
+        loop = asyncio.get_running_loop()
+        meta = await loop.run_in_executor(_executor, ingest_document, file_path)
 
         return {
             "id": meta["id"],

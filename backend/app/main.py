@@ -1,8 +1,27 @@
+import signal
+import sys
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api import chat, rag
+from app.core.logger import logger
 
-app = FastAPI(title="Local AI Copilot", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    def _graceful_shutdown(signum, frame):
+        logger.info(f"收到信号 {signum}，正在关闭服务...")
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, _graceful_shutdown)
+    signal.signal(signal.SIGTERM, _graceful_shutdown)
+
+    logger.info("Local AI Copilot 后端服务已启动")
+    yield
+    logger.info("Local AI Copilot 后端服务已关闭")
+
+
+app = FastAPI(title="Local AI Copilot", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

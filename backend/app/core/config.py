@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     VECTOR_STORE_DIR: Path = DATA_DIR / "vector_store"
 
     # 大模型配置
-    LLM_MODEL_NAME: str = os.getenv("LLM_MODEL_NAME", "qwen2.5")
+    LLM_MODEL_NAME: str = os.getenv("LLM_MODEL_NAME", "qwen3.5:4b-q4_K_M")
     EMBEDDING_MODEL_NAME: str = os.getenv("EMBEDDING_MODEL_NAME", "bge-large-zh-v1.5")
     RERANK_MODEL_NAME: str = os.getenv("RERANK_MODEL_NAME", "BAAI/bge-reranker-v2-m3")
     OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     CHUNK_OVERLAP_PERCENT: float = float(os.getenv("CHUNK_OVERLAP_PERCENT", 0.15))
     RETRIEVER_TOP_K: int = int(os.getenv("RETRIEVER_TOP_K", 20))
     RERANK_TOP_K: int = int(os.getenv("RERANK_TOP_K", 5))
+    MAX_RETRIES: int = int(os.getenv("MAX_RETRIES", 3))
 
     # 幻觉控制温度
     TEMPERATURE: float = 0.1

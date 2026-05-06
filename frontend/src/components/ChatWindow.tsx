@@ -125,26 +125,7 @@ export default function ChatWindow() {
         return `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
     };
 
-    const [messages, setMessages] = useState<Message[]>([
-        {
-            id: 'user-1',
-            role: 'user',
-            content: '什么是 Transformer？它的核心思想是什么？',
-            timestamp: '11:20'
-        },
-        {
-            id: 'welcome',
-            role: 'assistant',
-            content: 'Transformer 是一种基于注意力机制（Attention Mechanism）的深度学习模型，最早由 Google 在 2017 年提出，论文名为《Attention Is All You Need》。\n\n它的核心思想是：完全摒弃了传统的循环神经网络 (RNN) 和卷积神经网络 (CNN) 结构，转而依赖自注意力机制 (Self-Attention) 来建模输入序列中任意两个位置之间的依赖关系。\n\n主要特点包括：\n* **自注意力机制**：计算序列内部元素之间的关联，而不依赖于位置的远近。\n* **并行计算**：相比 RNN，Transformer 可以并行处理整个序列，大大提升训练效率。\n* **编码器-解码器结构**：由多个编码器层和解码器层堆叠而成，广泛应用于自然语言处理任务。',
-            timestamp: '11:20',
-            sources: [
-                { docName: 'Transformer论文.pdf', chunkId: 12, score: 0.89, type: 'pdf' },
-                { docName: 'attention机制.md', chunkId: 3, score: 0.83, type: 'md' },
-                { docName: '大模型综述.docx', chunkId: 25, score: 0.76, type: 'docx' },
-            ],
-            snippets: 'Transformer uses self-attention to compute representations of its input and output without using sequence aligned RNNs or convolution...'
-        }
-    ]);
+    const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [mode, setMode] = useState<'rag' | 'chat'>('rag');

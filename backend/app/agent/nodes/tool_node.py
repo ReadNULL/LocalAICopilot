@@ -10,7 +10,7 @@ class ToolExecutionNode:
     def __init__(self):
         print("🔧 ToolExecutionNode 已初始化，已挂载工具:", list(TOOL_MAP.keys()))
 
-    def process(self, state: Dict[str, Any]) -> Dict[str, Any]:
+    async def process(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """
         LangGraph 节点入口：负责解析并执行大模型发出的工具调用请求
         """
